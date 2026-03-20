@@ -2,10 +2,10 @@ package com.zenith.plugin.stashmanager.command;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import com.zenith.command.Command;
-import com.zenith.command.CommandContext;
-import com.zenith.command.CommandUsage;
-import com.zenith.command.brigadier.CommandCategory;
+import com.zenith.command.api.Command;
+import com.zenith.command.api.CommandContext;
+import com.zenith.command.api.CommandUsage;
+import com.zenith.command.api.CommandCategory;
 import com.zenith.plugin.stashmanager.StashManagerConfig;
 import com.zenith.plugin.stashmanager.StashManagerModule;
 import com.zenith.plugin.stashmanager.index.ContainerEntry;

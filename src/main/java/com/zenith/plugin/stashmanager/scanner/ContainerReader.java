@@ -1,11 +1,12 @@
 package com.zenith.plugin.stashmanager.scanner;
 
 import com.zenith.cache.data.inventory.Container;
+import com.zenith.mc.item.ItemData;
+import com.zenith.mc.item.ItemRegistry;
 import com.zenith.plugin.stashmanager.index.ContainerEntry;
 import com.zenith.plugin.stashmanager.index.ContainerIndex;
-import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockEntityType;
-import org.slf4j.Logger;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -15,14 +16,12 @@ import static com.zenith.Globals.CACHE;
 // Reads open container contents and records items into the index.
 public class ContainerReader {
 
-    private final Logger logger;
     private final ContainerIndex index;
     private final ShulkerIntrospector shulkerIntrospector;
 
-    public ContainerReader(Logger logger, ContainerIndex index) {
-        this.logger = logger;
+    public ContainerReader(ContainerIndex index) {
         this.index = index;
-        this.shulkerIntrospector = new ShulkerIntrospector(logger);
+        this.shulkerIntrospector = new ShulkerIntrospector();
     }
 
     // Read the currently open container and record its contents to the index.
@@ -30,7 +29,6 @@ public class ContainerReader {
     public boolean readOpenContainer(RegionScanner.ContainerLocation location, boolean isDouble) {
         Container open = CACHE.getPlayerCache().getInventoryCache().getOpenContainer();
         if (open == null) {
-            logger.debug("No open container to read at {}, {}, {}", location.x(), location.y(), location.z());
             return false;
         }
 
@@ -75,16 +73,13 @@ public class ContainerReader {
 
         index.put(containerEntry);
 
-        logger.info("Indexed container at {}, {}, {}: {} unique items, {} shulkers",
-            location.x(), location.y(), location.z(), items.size(), shulkerCount);
-
         return true;
     }
 
     private String getItemId(ItemStack stack) {
-        // MCProtocolLib stores item IDs as integers; map to string via registry
-        // The network ID can be resolved to a Minecraft item identifier
-        return "minecraft:item_" + stack.getId();
+        ItemData data = ItemRegistry.REGISTRY.get(stack.getId());
+        if (data != null) return data.name();
+        return "minecraft:unknown_" + stack.getId();
     }
 
     private boolean isShulkerBox(String itemId) {

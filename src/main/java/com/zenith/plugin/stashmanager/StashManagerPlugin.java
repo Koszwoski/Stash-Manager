@@ -7,27 +7,24 @@ import com.zenith.plugin.stashmanager.command.StashCommand;
 import com.zenith.plugin.stashmanager.command.StashSearchCommand;
 import com.zenith.plugin.stashmanager.command.StashSupplyCommand;
 import com.zenith.plugin.stashmanager.index.ContainerIndex;
-import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 
 @Plugin(
     id = BuildConstants.PLUGIN_ID,
     version = BuildConstants.VERSION,
-    description = "Container scanning, indexing, and Discord-queryable inventory management",
+    description = "Container scanning, indexing, and multi-platform friendly inventory management",
     authors = {"MOAR"},
     mcVersions = {BuildConstants.MC_VERSION}
 )
 public class StashManagerPlugin implements ZenithProxyPlugin {
 
-    public static ComponentLogger LOG;
     private static ContainerIndex sharedIndex;
     private static StashManagerModule sharedModule;
 
     @Override
     public void onLoad(PluginAPI pluginAPI) {
-        LOG = pluginAPI.getLogger();
         var config = pluginAPI.registerConfig(BuildConstants.PLUGIN_ID, StashManagerConfig.class);
         sharedIndex = new ContainerIndex();
-        sharedModule = new StashManagerModule(config, pluginAPI.getLogger(), sharedIndex);
+        sharedModule = new StashManagerModule(config, sharedIndex);
 
         pluginAPI.registerModule(sharedModule);
         pluginAPI.registerCommand(new StashCommand(config, sharedModule, sharedIndex));

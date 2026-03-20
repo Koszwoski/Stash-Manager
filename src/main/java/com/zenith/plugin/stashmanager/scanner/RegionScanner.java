@@ -2,7 +2,6 @@ package com.zenith.plugin.stashmanager.scanner;
 
 import com.zenith.cache.data.chunk.Chunk;
 import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockEntityType;
-import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,12 +14,9 @@ import static com.zenith.Globals.CACHE;
 // Enumerates container block entities from loaded chunks within a defined region.
 public class RegionScanner {
 
-    private final Logger logger;
     private final Set<Long> scannedChunks = new HashSet<>();
 
-    public RegionScanner(Logger logger) {
-        this.logger = logger;
-    }
+    public RegionScanner() {}
 
     public record ContainerLocation(
         int x, int y, int z,
@@ -80,15 +76,12 @@ public class RegionScanner {
                     containers.add(new ContainerLocation(worldX, worldY, worldZ, be.getType(), cx, cz));
 
                     if (containers.size() >= maxContainers) {
-                        logger.warn("Container cap reached: {}", maxContainers);
                         return sortByPlayerDistance(containers);
                     }
                 }
             }
         }
 
-        logger.info("Region scan found {} containers in {} chunks",
-            containers.size(), scannedChunks.size());
         return sortByPlayerDistance(containers);
     }
 

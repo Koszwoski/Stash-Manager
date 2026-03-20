@@ -1,22 +1,26 @@
 package com.zenith.plugin.stashmanager;
 
-import com.zenith.event.module.ClientBotTick;
-import com.zenith.module.Module;
-import com.zenith.network.registry.PacketHandlerCodec;
+import com.github.rfresh2.EventConsumer;
+import com.zenith.event.client.ClientBotTick;
+import com.zenith.feature.inventory.InventoryActionRequest;
+import com.zenith.feature.inventory.actions.CloseContainer;
+import com.zenith.module.api.Module;
+import com.zenith.network.codec.PacketHandlerCodec;
+import com.zenith.network.codec.PacketHandlerStateCodec;
 import com.zenith.plugin.stashmanager.index.ContainerIndex;
 import com.zenith.plugin.stashmanager.scanner.ContainerReader;
 import com.zenith.plugin.stashmanager.scanner.RegionScanner;
 import com.zenith.plugin.stashmanager.scanner.RegionScanner.ContainerLocation;
+import org.geysermc.mcprotocollib.protocol.data.ProtocolState;
 import org.geysermc.mcprotocollib.protocol.data.game.level.block.BlockEntityType;
 import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerSetContentPacket;
-import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.github.rfresh2.EventConsumer.of;
 import static com.zenith.Globals.*;
-import static com.zenith.event.SimpleEventBus.pair;
 
 // Tick-driven container scanning state machine.
 // IDLE -> ZONE_SCANNING -> WALKING -> OPENING -> READING -> CLOSING -> DONE
@@ -34,7 +38,6 @@ public class StashManagerModule extends Module {
     }
 
     private final StashManagerConfig config;
-    private final Logger logger;
     private final ContainerIndex index;
     private final RegionScanner regionScanner;
     private ContainerReader containerReader;
@@ -51,12 +54,11 @@ public class StashManagerModule extends Module {
     private int containersIndexed = 0;
     private int containersFailed = 0;
 
-    public StashManagerModule(StashManagerConfig config, Logger logger, ContainerIndex index) {
+    public StashManagerModule(StashManagerConfig config, ContainerIndex index) {
         this.config = config;
-        this.logger = logger;
         this.index = index;
-        this.regionScanner = new RegionScanner(logger);
-        this.containerReader = new ContainerReader(logger, index);
+        this.regionScanner = new RegionScanner();
+        this.containerReader = new ContainerReader(index);
     }
 
     @Override
@@ -65,39 +67,42 @@ public class StashManagerModule extends Module {
     }
 
     @Override
-    public List<?> registerEvents() {
+    public List<EventConsumer<?>> registerEvents() {
         return List.of(
-            pair(ClientBotTick.class, this::onTick),
-            pair(ClientBotTick.Starting.class, this::onTickStarting)
+            of(ClientBotTick.class, this::onTick),
+            of(ClientBotTick.Starting.class, this::onTickStarting)
         );
     }
 
     @Override
     public @Nullable PacketHandlerCodec registerClientPacketHandlerCodec() {
-        return PacketHandlerCodec.builder()
+        return PacketHandlerCodec.clientBuilder()
             .setId("stash-manager")
-            .outbound(ClientboundContainerSetContentPacket.class, (packet, session) -> {
-                if (state == ScanState.OPENING || state == ScanState.READING) {
-                    containerDataReceived = true;
-                    logger.debug("Received container data packet (windowId={})", packet.getContainerId());
-                }
-                return packet;
-            })
+            .setPriority(1)
+            .state(ProtocolState.GAME, PacketHandlerStateCodec.clientBuilder()
+                .inbound(ClientboundContainerSetContentPacket.class, (packet, session) -> {
+                    if (state == ScanState.OPENING || state == ScanState.READING) {
+                        containerDataReceived = true;
+                        debug("Received container data packet (windowId={})", packet.getContainerId());
+                    }
+                    return packet;
+                })
+                .build())
             .build();
     }
 
     @Override
     public void onEnable() {
-        logger.info("StashManager module enabled");
+        info("StashManager module enabled");
     }
 
     @Override
     public void onDisable() {
         if (state != ScanState.IDLE && state != ScanState.DONE) {
-            logger.info("StashManager module disabled — aborting scan");
+            info("StashManager module disabled — aborting scan");
             abortScan();
         }
-        logger.info("StashManager module disabled");
+        info("StashManager module disabled");
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -125,17 +130,17 @@ public class StashManagerModule extends Module {
     // Start a scan. Returns true if started, false if region undefined or already scanning.
     public boolean startScan() {
         if (config.pos1 == null || config.pos2 == null) {
-            logger.warn("Cannot start scan: region not defined (set pos1 and pos2 first)");
+            warn("Cannot start scan: region not defined (set pos1 and pos2 first)");
             return false;
         }
         if (state != ScanState.IDLE && state != ScanState.DONE) {
-            logger.warn("Cannot start scan: already scanning (state={})", state);
+            warn("Cannot start scan: already scanning (state={})", state);
             return false;
         }
 
         resetScanState();
         state = ScanState.ZONE_SCANNING;
-        logger.info("Starting container scan in region ({}) to ({})",
+        info("Starting container scan in region ({}) to ({})",
             formatPos(config.pos1), formatPos(config.pos2));
         return true;
     }
@@ -148,7 +153,7 @@ public class StashManagerModule extends Module {
         closeCurrentContainer();
 
         state = ScanState.IDLE;
-        logger.info("Scan aborted. Found={}, Indexed={}, Failed={}",
+        info("Scan aborted. Found={}, Indexed={}, Failed={}",
             containersFound, containersIndexed, containersFailed);
     }
 
@@ -167,7 +172,7 @@ public class StashManagerModule extends Module {
     private void onTickStarting(ClientBotTick.Starting event) {
         // Reset state if bot reconnects mid-scan
         if (state != ScanState.IDLE && state != ScanState.DONE) {
-            logger.warn("Bot reconnected during scan — resetting state");
+            warn("Bot reconnected during scan — resetting state");
             state = ScanState.IDLE;
         }
     }
@@ -195,17 +200,17 @@ public class StashManagerModule extends Module {
         pendingContainers.addAll(found);
         containersFound = pendingContainers.size();
 
-        logger.info("Zone scan complete: {} containers discovered", found.size());
+        info("Zone scan complete: {} containers discovered", found.size());
 
         // Check for unscanned chunks (beyond render distance)
         var unscanned = regionScanner.getUnscannedChunks(config.pos1, config.pos2);
         if (!unscanned.isEmpty() && pendingContainers.size() < config.maxContainers) {
-            logger.info("{} chunks still unloaded — will walk to load them", unscanned.size());
+            info("{} chunks still unloaded — will walk to load them", unscanned.size());
         }
 
         if (pendingContainers.isEmpty()) {
             state = ScanState.DONE;
-            logger.info("No containers found in region");
+            info("No containers found in region");
             return;
         }
 
@@ -232,7 +237,7 @@ public class StashManagerModule extends Module {
                 interactWithContainer(target);
             } else {
                 // Pathfinding failed to get close enough
-                logger.warn("Failed to reach container at {}, {}, {} (dist={})",
+                warn("Failed to reach container at {}, {}, {} (dist={})",
                     target.x(), target.y(), target.z(), String.format("%.1f", dist));
                 containersFailed++;
                 advanceToNextContainer();
@@ -251,7 +256,7 @@ public class StashManagerModule extends Module {
         }
 
         if (openTimeoutCounter >= config.openTimeoutTicks) {
-            logger.warn("Timeout waiting for container open at {}", currentContainerPos());
+            warn("Timeout waiting for container open at {}", currentContainerPos());
             containersFailed++;
             closeCurrentContainer();
             advanceToNextContainer();
@@ -277,7 +282,7 @@ public class StashManagerModule extends Module {
             containersIndexed++;
         } else {
             containersFailed++;
-            logger.warn("Failed to read container at {}", currentContainerPos());
+            warn("Failed to read container at {}", currentContainerPos());
         }
 
         state = ScanState.CLOSING;
@@ -318,14 +323,14 @@ public class StashManagerModule extends Module {
                 int[] target = unscanned.get(0);
                 int targetX = target[0] * 16 + 8;
                 int targetZ = target[1] * 16 + 8;
-                logger.info("Walking toward unscanned chunk at {}, {}", targetX, targetZ);
+                info("Walking toward unscanned chunk at {}, {}", targetX, targetZ);
                 BARITONE.pathTo(targetX, targetZ);
                 state = ScanState.WALKING_TO_ZONE;
                 return;
             }
 
             state = ScanState.DONE;
-            logger.info("Scan complete. Found={}, Indexed={}, Failed={}",
+            info("Scan complete. Found={}, Indexed={}, Failed={}",
                 containersFound, containersIndexed, containersFailed);
             return;
         }
@@ -339,7 +344,7 @@ public class StashManagerModule extends Module {
         // Skip double-chest partner blocks (only index the primary side)
         if (next.type() == BlockEntityType.CHEST || next.type() == BlockEntityType.TRAPPED_CHEST) {
             if (isDoubleChestPartner(next)) {
-                logger.debug("Skipping double chest partner at {}, {}, {}",
+                debug("Skipping double chest partner at {}, {}, {}",
                     next.x(), next.y(), next.z());
                 advanceToNextContainer();
                 return;
@@ -357,7 +362,7 @@ public class StashManagerModule extends Module {
         } else {
             state = ScanState.WALKING;
             BARITONE.pathTo(next.x(), next.y(), next.z());
-            logger.debug("Walking to container at {}, {}, {} (dist={})",
+            debug("Walking to container at {}, {}, {} (dist={})",
                 next.x(), next.y(), next.z(), String.format("%.1f", dist));
         }
     }
@@ -393,13 +398,13 @@ public class StashManagerModule extends Module {
 
     private void closeCurrentContainer() {
         try {
-            INVENTORY.submit(com.zenith.feature.queue.InventoryActionRequest.builder()
+            INVENTORY.submit(InventoryActionRequest.builder()
                 .owner(this)
-                .actions(List.of(new com.zenith.feature.queue.action.CloseContainer()))
+                .actions(new CloseContainer())
                 .priority(5000)
                 .build());
         } catch (Exception e) {
-            logger.debug("Error closing container: {}", e.getMessage());
+            debug("Error closing container: {}", e.getMessage());
         }
     }
 
